@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Input, Typography, Divider, Carousel, Card, Space, Tag, Button, Affix } from 'antd';
-import { SearchOutlined, BookOutlined, FireOutlined, CrownOutlined, RightOutlined } from '@ant-design/icons';
+import { Row, Col, Input, Typography, Divider, Carousel, Card, Space, Tag, Button, Affix, message } from 'antd';
+import { SearchOutlined, BookOutlined, FireOutlined, CrownOutlined, RightOutlined, ReloadOutlined } from '@ant-design/icons';
 import BookCard from '../components/BookCard';
-import store from '../data/store';
 import { Link } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
 
-const Home = () => {
-  const [books, setBooks] = useState([]);
+const Home = ({ appData }) => {
+  const { books, cart, updateCart, services, refreshBooks } = appData;
   const [filteredBooks, setFilteredBooks] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [cart, setCart] = useState(store.cart);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 设置页面标题
+  useEffect(() => {
+    document.title = '首页 - 书香世界在线图书商城';
+  }, []);
 
   // 模拟分类数据
   const categories = [
@@ -26,13 +30,8 @@ const Home = () => {
 
   // 初始化加载所有图书
   useEffect(() => {
-    setFilteredBooks(store.books);
-  }, []);
-
-  // 保存购物车到存储
-  useEffect(() => {
-    store.saveCart(cart);
-  }, [cart]);
+    setFilteredBooks(books);
+  }, [books]);
 
   // 处理搜索
   const handleSearch = (value) => {
@@ -48,7 +47,13 @@ const Home = () => {
 
   // 过滤图书
   const filterBooks = (query, category) => {
-    let filtered = store.books;
+    let filtered = books;
+    
+    // 首先过滤掉停产的书籍（显示可用和售罄状态的书）
+    filtered = filtered.filter(book => {
+      const status = book.status;
+      return !status || status === 'AVAILABLE' || status === 'OUT_OF_STOCK';
+    });
     
     // 按搜索词过滤
     if (query) {
@@ -85,34 +90,64 @@ const Home = () => {
     setFilteredBooks(filtered);
   };
 
-  // 添加到购物车
-  const handleAddToCart = (book) => {
-    const existingItem = cart.find(item => item.id === book.id);
-    
-    if (existingItem) {
-      // 如果图书已经在购物车，增加数量
-      if (existingItem.quantity < book.stock) {
-        const updatedCart = cart.map(item => 
-          item.id === book.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-        setCart(updatedCart);
+  // 添加到购物车 - 使用API
+  const handleAddToCart = async (book) => {
+    try {
+      console.log(`🛒 [Home] 添加图书到购物车 - ${book.title} (ID: ${book.id})`);
+      
+      // 正确的查找逻辑：根据图书ID查找购物车中的对应项
+      const existingItem = cart.find(item => {
+        // 获取购物车项对应的图书ID
+        const itemBookId = item.book ? item.book.id : item.bookId;
+        return itemBookId === book.id;
+      });
+      
+      if (existingItem) {
+        // 如果已存在，更新数量
+        const currentQuantity = existingItem.quantity || 1;
+        const newQuantity = currentQuantity + 1;
+        
+        if (newQuantity <= book.stock) {
+          await updateCart('update', {
+            cartItemId: existingItem.id,
+            quantity: newQuantity
+          });
+        } else {
+          message.warning(`库存不足！最大库存: ${book.stock}`);
+          return;
+        }
       } else {
-        // 超出库存提示已在BookCard组件中处理
+        // 如果不存在，添加新项目
+        await updateCart('add', {
+          bookId: book.id,
+          quantity: 1
+        });
       }
-    } else {
-      // 如果图书不在购物车，添加新条目
-      setCart([...cart, { ...book, quantity: 1 }]);
+      
+      message.success('已添加到购物车');
+    } catch (error) {
+      console.error('添加到购物车失败:', error);
+      message.error('添加到购物车失败');
     }
   };
 
-  // 轮播图内容
+  // 获取可显示的书籍（可用和售罄状态）
+  const getDisplayableBooks = () => {
+    return books.filter(book => {
+      const status = book.status;
+      // 显示可用和售罄状态的书籍，只隐藏停产的书籍
+      return !status || status === 'AVAILABLE' || status === 'OUT_OF_STOCK';
+    });
+  };
+
+  // 轮播图内容（只显示可用状态的书籍）
   const carouselContent = [
     {
       image: 'https://images.unsplash.com/photo-1495446815901-a7297e633e8d?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
       fallbackImage: 'https://images.pexels.com/photos/590493/pexels-photo-590493.jpeg?auto=compress&cs=tinysrgb&w=1350',
       title: '文学经典',
       description: '探索经典文学作品的无限魅力',
-      books: store.books.filter(book => 
+      books: getDisplayableBooks().filter(book => 
         book.title.includes('红楼梦') || book.title.includes('活着') || book.title.includes('围城')
       ),
       category: 'literature'
@@ -122,7 +157,7 @@ const Home = () => {
       fallbackImage: 'https://images.pexels.com/photos/2908984/pexels-photo-2908984.jpeg?auto=compress&cs=tinysrgb&w=1350',
       title: '科幻世界',
       description: '踏上前所未有的科幻之旅',
-      books: store.books.filter(book => 
+      books: getDisplayableBooks().filter(book => 
         book.title.includes('三体')
       ),
       category: 'scifi'
@@ -132,7 +167,7 @@ const Home = () => {
       fallbackImage: 'https://images.pexels.com/photos/159866/books-book-pages-read-literature-159866.jpeg?auto=compress&cs=tinysrgb&w=1350',
       title: '历史人文',
       description: '了解人类历史的演变与智慧',
-      books: store.books.filter(book => 
+      books: getDisplayableBooks().filter(book => 
         book.title.includes('人类简史')
       ),
       category: 'history'
@@ -164,8 +199,22 @@ const Home = () => {
     }
   };
 
-  // 获取推荐图书（前3本）
-  const recommendedBooks = store.books.slice(0, 3);
+  // 获取推荐图书（前3本，包含可用和售罄状态的书籍）
+  const recommendedBooks = getDisplayableBooks().slice(0, 3);
+
+  // 刷新图书数据
+  const handleRefreshBooks = async () => {
+    try {
+      setRefreshing(true);
+      await refreshBooks();
+      // 刷新后重新过滤图书
+      filterBooks(searchQuery, categoryFilter);
+    } catch (error) {
+      console.error('刷新图书数据失败:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div style={{ padding: '0 0 24px 0' }}>
@@ -268,7 +317,7 @@ const Home = () => {
                 style={{ width: '100%' }}
               />
             </Col>
-            <Col xs={24} sm={16}>
+            <Col xs={24} sm={14}>
               <Space wrap size="middle">
                 {categories.map(category => (
                   <Button 
@@ -282,6 +331,17 @@ const Home = () => {
                   </Button>
                 ))}
               </Space>
+            </Col>
+            <Col xs={24} sm={2}>
+              <Button 
+                icon={<ReloadOutlined />}
+                loading={refreshing}
+                onClick={handleRefreshBooks}
+                title="刷新图书数据"
+                style={{ borderRadius: '16px' }}
+              >
+                刷新
+              </Button>
             </Col>
           </Row>
         </div>

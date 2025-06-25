@@ -14,12 +14,19 @@ const BookCard = ({ book, onAddToCart }) => {
     setImageError(true);
   };
 
-  const addToCart = () => {
-    if (book.stock > 0) {
-      onAddToCart(book);
-      message.success(`已将《${book.title}》添加到购物车`);
-    } else {
-      message.error('该图书已售罄');
+  const addToCart = async () => {
+    try {
+      // 检查是否为售罄状态或库存为0
+      if (book.status === 'OUT_OF_STOCK' || book.stock <= 0) {
+        message.error('该图书已售罄');
+        return;
+      }
+      
+      await onAddToCart(book);
+      // message已在onAddToCart中显示，这里不重复显示
+    } catch (error) {
+      console.error('添加到购物车失败:', error);
+      // 错误信息已在onAddToCart中处理
     }
   };
 
@@ -107,7 +114,12 @@ const BookCard = ({ book, onAddToCart }) => {
             right: 10, 
             zIndex: 2 
           }}>
-            {book.stock < 5 && (
+            {book.status === 'OUT_OF_STOCK' && (
+              <Tag color="red" style={{ marginBottom: 5 }}>
+                售罄
+              </Tag>
+            )}
+            {book.status !== 'OUT_OF_STOCK' && book.stock < 5 && book.stock > 0 && (
               <Tag color="orange" style={{ marginBottom: 5 }}>
                 库存紧张
               </Tag>
@@ -120,11 +132,11 @@ const BookCard = ({ book, onAddToCart }) => {
         <Button 
           type="primary" 
           icon={<ShoppingCartOutlined />} 
-          disabled={book.stock <= 0}
+          disabled={book.status === 'OUT_OF_STOCK' || book.stock <= 0}
           onClick={addToCart}
           block
         >
-          {book.stock > 0 ? '加入购物车' : '售罄'}
+          {book.status === 'OUT_OF_STOCK' || book.stock <= 0 ? '售罄' : '加入购物车'}
         </Button>
       ]}
     >
@@ -142,7 +154,7 @@ const BookCard = ({ book, onAddToCart }) => {
               {book.author}
             </Text>
             <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-              <Text type="danger" strong>¥{book.price.toFixed(2)}</Text>
+              <Text type="danger" strong>¥{(book.price || 0).toFixed(2)}</Text>
               <Text type="secondary">{sales}人已购买</Text>
             </div>
           </div>

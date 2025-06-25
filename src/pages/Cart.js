@@ -1,105 +1,165 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, InputNumber, Typography, Card, Empty, Space, message, Avatar, Divider, Badge, Steps, Row, Col, Breadcrumb } from 'antd';
-import { DeleteOutlined, ShoppingOutlined, BookOutlined, HomeOutlined, CheckOutlined, ShoppingCartOutlined, CreditCardOutlined, GiftOutlined } from '@ant-design/icons';
+import { DeleteOutlined, ShoppingOutlined, BookOutlined, HomeOutlined, CheckOutlined, ShoppingCartOutlined, CreditCardOutlined, GiftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
-import store from '../data/store';
 
 const { Title, Text } = Typography;
 const { Step } = Steps;
 
-const Cart = () => {
-  // 从store中获取初始购物车数据
-  const [cart, setCart] = useState(() => {
-    const cartData = store.cart;
-    return Array.isArray(cartData) ? cartData : [];
-  });
+const Cart = ({ appData }) => {
+  const { cart, updateCart, createOrder, services } = appData;
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
 
-  // 监听购物车数据变化
+  // 设置页面标题
   useEffect(() => {
-    const cartData = store.cart;
-    if (!cart.length && Array.isArray(cartData) && cartData.length) {
-      setCart(cartData);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (cart && Array.isArray(cart) && cart.length > 0) {
-      store.saveCart(cart);
+    document.title = '购物车 - 书香世界在线图书商城';
+    
+    // 调试：打印购物车数据
+    console.log('🛒 [Cart] 购物车数据更新:', cart);
+    console.log('🛒 [Cart] 购物车数据类型:', typeof cart);
+    console.log('🛒 [Cart] 是否为数组:', Array.isArray(cart));
+    if (Array.isArray(cart)) {
+      console.log('🛒 [Cart] 购物车商品数量:', cart.length);
     }
   }, [cart]);
 
-  // 更新商品数量
-  const updateQuantity = (record, value) => {
-    if (value > record.stock) {
-      message.warning(`数量不能超过库存限制！最大库存: ${record.stock}`);
-      return;
+  // 手动刷新购物车数据
+  const handleRefreshCart = async () => {
+    try {
+      setRefreshing(true);
+      console.log('🔄 [Cart] 手动刷新购物车数据');
+      
+      if (appData.refreshCart) {
+        await appData.refreshCart();
+      } else {
+        message.warning('刷新功能不可用');
+      }
+    } catch (error) {
+      console.error('❌ [Cart] 刷新购物车失败:', error);
+      message.error('刷新购物车失败');
+    } finally {
+      setRefreshing(false);
     }
-
-    const updatedCart = cart.map(item => 
-      item.id === record.id ? { ...item, quantity: value } : item
-    );
-    setCart(updatedCart);
   };
 
-  // 删除商品
-  const removeItem = (id) => {
-    const updatedCart = cart.filter(item => item.id !== id);
-    setCart(updatedCart);
-    setSelectedRowKeys(selectedRowKeys.filter(key => key !== id));
-    message.success('商品已从购物车移除');
-  };
+  // 更新商品数量 - 使用API
+  const updateQuantity = async (record, value) => {
+    try {
+      const book = record.book || record;
+      if (value > book.stock) {
+        message.warning(`数量不能超过库存限制！最大库存: ${book.stock}`);
+        return;
+      }
 
-  // 清空购物车
-  const clearCart = () => {
-    setCart([]);
-    setSelectedRowKeys([]);
-    message.success('购物车已清空');
-  };
-
-  // 提交订单
-  const handleCheckout = () => {
-    // 获取选中的商品
-    const selectedItems = cart.filter(item => selectedRowKeys.includes(item.id));
-    
-    if (selectedItems.length === 0) {
-      message.warning('请至少选择一件商品');
-      return;
+      await updateCart('update', {
+        cartItemId: record.id,
+        quantity: value
+      });
+      
+      message.success('数量更新成功');
+    } catch (error) {
+      console.error('更新数量失败:', error);
+      message.error('更新数量失败');
     }
-    
-    // 使用集中存储的createOrder方法创建订单
-    store.createOrder(selectedItems);
-    
-    // 从购物车中移除已下单的商品
-    setCart(cart.filter(item => !selectedRowKeys.includes(item.id)));
-    
-    // 清空选中状态
-    setSelectedRowKeys([]);
-    
-    message.success('订单已创建成功！');
-    
-    // 跳转到订单页面
-    navigate('/orders');
   };
+
+  // 删除商品 - 使用API
+  const removeItem = async (id) => {
+    try {
+      await updateCart('remove', {
+        cartItemId: id
+      });
+      
+      setSelectedRowKeys(selectedRowKeys.filter(key => key !== id));
+      message.success('商品已从购物车移除');
+    } catch (error) {
+      console.error('删除商品失败:', error);
+      message.error('删除商品失败');
+    }
+  };
+
+  // 清空购物车 - 使用API
+  const clearCartItems = async () => {
+    try {
+      await updateCart('clear', {});
+      setSelectedRowKeys([]);
+      message.success('购物车已清空');
+    } catch (error) {
+      console.error('清空购物车失败:', error);
+      message.error('清空购物车失败');
+    }
+  };
+
+  // 提交订单 - 使用API
+  const handleCheckout = async () => {
+    try {
+      // 获取选中的商品
+      const selectedItems = cart.filter(item => selectedRowKeys.includes(item.id));
+      
+      if (selectedItems.length === 0) {
+        message.warning('请至少选择一件商品');
+        return;
+      }
+      
+      console.log('📦 [Cart] 开始创建订单...', selectedItems);
+      console.log('📦 [Cart] 选中的商品ID:', selectedItems.map(item => item.id));
+      
+      // 使用API创建订单
+      const result = await createOrder(selectedItems);
+      
+      console.log('📦 [Cart] 创建订单返回结果:', result);
+      
+      if (result) {
+        console.log('📦 [Cart] 订单创建成功，清空选中状态');
+        // 清空选中状态
+        setSelectedRowKeys([]);
+        
+        // 延迟跳转，确保数据更新完成
+        setTimeout(() => {
+          console.log('📦 [Cart] 跳转到订单页面');
+          navigate('/orders');
+        }, 1000);
+      } else {
+        console.error('📦 [Cart] 订单创建失败，result为空');
+        message.error('订单创建失败，请重试');
+      }
+    } catch (error) {
+      console.error('创建订单失败:', error);
+      message.error('创建订单失败，请重试');
+    }
+  };
+
+
 
   // 计算选中商品的总价
   const getSelectedTotalPrice = () => {
     return cart
       .filter(item => selectedRowKeys.includes(item.id))
-      .reduce((total, item) => total + (item.price * item.quantity), 0);
+      .reduce((total, item) => {
+        const book = item.book || item;
+        const price = book.price || 0;
+        const quantity = item.quantity || 1;
+        return total + (price * quantity);
+      }, 0);
   };
 
   // 计算所有商品的总价
   const getTotalPrice = () => {
-    return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+    return cart.reduce((total, item) => {
+      const book = item.book || item;
+      const price = book.price || 0;
+      const quantity = item.quantity || 1;
+      return total + (price * quantity);
+    }, 0);
   };
 
   // 获取所选商品数量
   const getSelectedItemsCount = () => {
     return cart
       .filter(item => selectedRowKeys.includes(item.id))
-      .reduce((total, item) => total + item.quantity, 0);
+      .reduce((total, item) => total + (item.quantity || 1), 0);
   };
 
   // 表格行选择配置
@@ -115,61 +175,76 @@ const Cart = () => {
       title: '图书',
       dataIndex: 'title',
       key: 'title',
-      render: (text, record) => (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Avatar 
-            shape="square" 
-            size={64} 
-            src={record.coverImage} 
-            icon={<BookOutlined />} 
-            style={{ marginRight: 16 }}
-          />
-          <div>
-            <Link to={`/book/${record.id}`} style={{ fontSize: '16px', fontWeight: 'bold' }}>
-              {text}
-            </Link>
-            <div style={{ color: '#888', fontSize: '12px', marginTop: 4 }}>
-              {record.author}
+      render: (text, record) => {
+        const book = record.book || record;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Avatar 
+              shape="square" 
+              size={64} 
+              src={book.coverImage} 
+              icon={<BookOutlined />} 
+              style={{ marginRight: 16 }}
+            />
+            <div>
+              <Link to={`/book/${book.id}`} style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                {book.title || text}
+              </Link>
+              <div style={{ color: '#888', fontSize: '12px', marginTop: 4 }}>
+                {book.author}
+              </div>
             </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: '单价',
       dataIndex: 'price',
       key: 'price',
       align: 'center',
-      render: (price) => (
-        <Text strong style={{ fontSize: '16px', color: '#ff4d4f' }}>
-          ￥{price.toFixed(2)}
-        </Text>
-      ),
+      render: (price, record) => {
+        const book = record.book || record;
+        const bookPrice = book.price || price || 0;
+        return (
+          <Text strong style={{ fontSize: '16px', color: '#ff4d4f' }}>
+                              ￥{(bookPrice || 0).toFixed(2)}
+          </Text>
+        );
+      },
     },
     {
       title: '数量',
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'center',
-      render: (_, record) => (
-        <InputNumber
-          min={1}
-          max={record.stock}
-          value={record.quantity}
-          onChange={(value) => updateQuantity(record, value)}
-          style={{ width: 100 }}
-        />
-      ),
+      render: (_, record) => {
+        const book = record.book || record;
+        return (
+          <InputNumber
+            min={1}
+            max={book.stock}
+            value={record.quantity}
+            onChange={(value) => updateQuantity(record, value)}
+            style={{ width: 100 }}
+          />
+        );
+      },
     },
     {
       title: '小计',
       key: 'subtotal',
       align: 'center',
-      render: (_, record) => (
-        <Text strong style={{ fontSize: '16px', color: '#ff4d4f' }}>
-          ￥{(record.price * record.quantity).toFixed(2)}
-        </Text>
-      ),
+      render: (_, record) => {
+        const book = record.book || record;
+        const price = book.price || 0;
+        const quantity = record.quantity || 1;
+        return (
+          <Text strong style={{ fontSize: '16px', color: '#ff4d4f' }}>
+            ￥{((price || 0) * (quantity || 1)).toFixed(2)}
+          </Text>
+        );
+      },
     },
     {
       title: '操作',
@@ -213,6 +288,15 @@ const Cart = () => {
       <Title level={2} style={{ display: 'flex', alignItems: 'center', marginBottom: 24 }}>
         <ShoppingCartOutlined style={{ marginRight: 8 }} />
         购物车 {cart.length > 0 && <Badge count={cart.length} style={{ marginLeft: 8 }} />}
+        <Button 
+          icon={<ReloadOutlined />}
+          loading={refreshing}
+          onClick={handleRefreshCart}
+          style={{ marginLeft: 16 }}
+          title="刷新购物车数据"
+        >
+          刷新购物车
+        </Button>
       </Title>
 
       {cart.length === 0 ? (
@@ -243,7 +327,7 @@ const Cart = () => {
             <Row justify="space-between" align="middle">
               <Col>
                 <Space>
-                  <Button onClick={clearCart} danger>清空购物车</Button>
+                  <Button onClick={clearCartItems} danger>清空购物车</Button>
                   <Button onClick={() => navigate('/')}>继续购物</Button>
                 </Space>
               </Col>

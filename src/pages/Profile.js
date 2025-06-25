@@ -2,39 +2,52 @@ import React, { useState, useEffect } from 'react';
 import { Card, Tabs, Form, Input, Button, Typography, Avatar, List, Tag, message, Empty } from 'antd';
 import { UserOutlined, LockOutlined, HistoryOutlined, HeartOutlined, ShoppingOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
-import store from '../data/store';
+import { formatDateTime } from '../utils/dateUtils';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 
-// 模拟收藏的书籍
-const mockFavorites = [
-  { id: 2, title: '三体', author: '刘慈欣' },
-  { id: 5, title: '平凡的世界', author: '路遥' },
-];
+const Profile = ({ appData }) => {
+  const { userInfo, favorites, updateUserInfo, updateFavorites, orders, services, userId } = appData;
+  const [activeTab, setActiveTab] = useState('profile');
+  const [form] = Form.useForm();
 
-const Profile = () => {
-  const [userInfo, setUserInfo] = useState(store.userInfo);
-  const [orders, setOrders] = useState(store.orders);
-  const [favorites, setFavorites] = useState(store.favorites);
+  // 设置页面标题
+  useEffect(() => {
+    document.title = '个人中心 - 书香世界在线图书商城';
+  }, []);
 
-  const handleUpdateProfile = (values) => {
-    const updatedInfo = { ...userInfo, ...values };
-    setUserInfo(updatedInfo);
-    store.saveUserInfo(updatedInfo);
-    message.success('个人信息已更新');
+  const handleUpdateProfile = async (values) => {
+    try {
+      console.log('✏️ [Profile] 更新用户信息', values);
+      await updateUserInfo({ ...userInfo, ...values });
+      message.success('个人信息已更新');
+    } catch (error) {
+      console.error('更新用户信息失败:', error);
+      message.error('更新个人信息失败');
+    }
   };
 
-  const handleUpdatePassword = (values) => {
-    message.success('密码已更新');
-    // 实际项目中这里会调用后端API更新密码
+  const handleUpdatePassword = async (values) => {
+    try {
+      console.log('🔐 [Profile] 修改密码');
+      await services.userService.changePassword(userId, values.oldPassword, values.newPassword);
+      message.success('密码已更新');
+    } catch (error) {
+      console.error('修改密码失败:', error);
+      message.error('修改密码失败');
+    }
   };
 
-  const handleRemoveFavorite = (id) => {
-    const updatedFavorites = favorites.filter(item => item.id !== id);
-    setFavorites(updatedFavorites);
-    store.saveFavorites(updatedFavorites);
-    message.success('已从收藏中移除');
+  const handleRemoveFavorite = async (id) => {
+    try {
+      console.log(`💔 [Profile] 移除收藏 - ID: ${id}`);
+      await updateFavorites('remove', id);
+      message.success('已从收藏中移除');
+    } catch (error) {
+      console.error('移除收藏失败:', error);
+      message.error('移除收藏失败');
+    }
   };
 
   return (
@@ -190,12 +203,12 @@ const Profile = () => {
                   >
                     <List.Item.Meta
                       title={`订单 ${order.id}`}
-                      description={`下单时间: ${order.orderTime} | 总价: ￥${order.totalAmount.toFixed(2)}`}
+                      description={`下单时间: ${formatDateTime(order.orderTime)} | 总价: ￥${(order.totalAmount || 0).toFixed(2)}`}
                     />
                     <div>
                       {order.items.map(item => (
                         <div key={item.id} style={{ margin: '8px 0' }}>
-                          <Link to={`/book/${item.id}`}>{item.title}</Link> x {item.quantity} (￥{item.price.toFixed(2)}/本)
+                          <Link to={`/book/${item.id}`}>{item.title}</Link> x {item.quantity} (￥{(item.price || 0).toFixed(2)}/本)
                         </div>
                       ))}
                     </div>

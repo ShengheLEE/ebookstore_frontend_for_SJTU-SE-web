@@ -12,95 +12,128 @@ import {
   SafetyCertificateOutlined,
   CheckCircleOutlined
 } from '@ant-design/icons';
-import store from '../data/store';
 
 const { Title, Text, Paragraph } = Typography;
 
-const BookDetail = () => {
+const BookDetail = ({ appData }) => {
+  const { books, cart, updateCart, favorites, updateFavorites, services } = appData;
   const { id } = useParams();
   const navigate = useNavigate();
   const [book, setBook] = useState(null);
   const [quantity, setQuantity] = useState(1);
-  const [cart, setCart] = useState(store.cart);
-  const [favorites, setFavorites] = useState(store.favorites);
   const [imageError, setImageError] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 加载图书信息
+  // 设置页面标题
   useEffect(() => {
-    setLoading(true);
-    const bookData = store.books.find(b => b.id === parseInt(id));
-    if (bookData) {
-      setBook(bookData);
-      // 模拟加载延迟
-      setTimeout(() => {
-        setLoading(false);
-      }, 300);
+    if (book) {
+      document.title = `${book.title} - 书香世界在线图书商城`;
     } else {
-      setLoading(false);
+      document.title = '图书详情 - 书香世界在线图书商城';
     }
-  }, [id]);
+  }, [book]);
 
-  // 保存购物车到存储
+  // 加载图书信息 - 使用API
   useEffect(() => {
-    store.saveCart(cart);
-  }, [cart]);
+    const loadBook = async () => {
+      setLoading(true);
+      try {
+        // 首先尝试从本地books数组中找到
+        const localBook = books.find(b => b.id === parseInt(id));
+        if (localBook) {
+          setBook(localBook);
+          setLoading(false);
+          return;
+        }
+        
+        // 如果本地没有，调用API获取
+        console.log(`📖 [BookDetail] 从API加载图书详情 - ID: ${id}`);
+        const bookData = await services.bookService.getBookById(parseInt(id));
+        
+        if (bookData) {
+          setBook(bookData);
+        } else {
+          console.warn(`📖 [BookDetail] 未找到图书 - ID: ${id}`);
+        }
+      } catch (error) {
+        console.error('加载图书详情失败:', error);
+        message.error('加载图书详情失败');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    if (id) {
+      loadBook();
+    }
+  }, [id, books, services.bookService]);
 
-  // 保存收藏到存储
-  useEffect(() => {
-    store.saveFavorites(favorites);
-  }, [favorites]);
-
-  // 添加到购物车
-  const handleAddToCart = () => {
+  // 添加到购物车 - 使用API
+  const handleAddToCart = async () => {
     if (!book) return;
     
-    const existingItem = cart.find(item => item.id === book.id);
-    
-    if (existingItem) {
-      // 检查是否超过库存
-      if (existingItem.quantity + quantity > book.stock) {
-        message.warning(`添加数量超过库存限制！当前库存: ${book.stock}`);
-        return;
-      }
+    try {
+      console.log(`🛒 [BookDetail] 添加到购物车 - 图书: ${book.title}, 数量: ${quantity}`);
       
-      // 更新购物车中的数量
-      const updatedCart = cart.map(item => 
-        item.id === book.id 
-          ? { ...item, quantity: item.quantity + quantity } 
-          : item
-      );
-      setCart(updatedCart);
-    } else {
-      // 检查是否超过库存
+      // 检查库存
       if (quantity > book.stock) {
         message.warning(`添加数量超过库存限制！当前库存: ${book.stock}`);
         return;
       }
       
-      // 添加新商品到购物车
-      setCart([...cart, { ...book, quantity }]);
+      // 检查是否已在购物车中
+      const existingItem = cart.find(item => 
+        (item.book && item.book.id === book.id) || item.id === book.id
+      );
+      
+      if (existingItem) {
+        // 更新数量
+        const newQuantity = existingItem.quantity + quantity;
+        if (newQuantity > book.stock) {
+          message.warning(`添加数量超过库存限制！当前库存: ${book.stock}`);
+          return;
+        }
+        
+        await updateCart('update', {
+          cartItemId: existingItem.id,
+          quantity: newQuantity
+        });
+      } else {
+        // 添加新项目
+        await updateCart('add', {
+          bookId: book.id,
+          quantity: quantity
+        });
+      }
+      
+      message.success(`已将 ${quantity} 本《${book.title}》添加到购物车`);
+    } catch (error) {
+      console.error('添加到购物车失败:', error);
+      message.error('添加到购物车失败');
     }
-    
-    message.success(`已将 ${quantity} 本《${book.title}》添加到购物车`);
   };
 
-  // 切换收藏状态
-  const toggleFavorite = () => {
+  // 切换收藏状态 - 使用API
+  const toggleFavorite = async () => {
     if (!book) return;
     
-    const isFavorite = favorites.some(item => item.id === book.id);
-    
-    if (isFavorite) {
-      // 从收藏中移除
-      const updatedFavorites = favorites.filter(item => item.id !== book.id);
-      setFavorites(updatedFavorites);
-      message.success(`已将《${book.title}》从收藏中移除`);
-    } else {
-      // 添加到收藏
-      const { id, title, author } = book;
-      setFavorites([...favorites, { id, title, author }]);
-      message.success(`已将《${book.title}》添加到收藏`);
+    try {
+      const isFavorite = favorites.some(item => item.id === book.id || item.bookId === book.id);
+      
+      if (isFavorite) {
+        // 从收藏中移除
+        console.log(`💔 [BookDetail] 取消收藏 - ${book.title}`);
+        await updateFavorites('remove', book.id);
+        message.success(`已将《${book.title}》从收藏中移除`);
+      } else {
+        // 添加到收藏
+        console.log(`💖 [BookDetail] 添加收藏 - ${book.title}`);
+        await updateFavorites('add', book.id);
+        message.success(`已将《${book.title}》添加到收藏`);
+      }
+    } catch (error) {
+      console.error('收藏操作失败:', error);
+      message.error('收藏操作失败');
     }
   };
 
@@ -248,7 +281,7 @@ const BookDetail = () => {
                   borderRadius: '8px'
                 }}>
                   <Title level={2} style={{ color: '#f5222d', margin: 0 }}>
-                    ¥{book.price.toFixed(2)}
+                    ¥{(book.price || 0).toFixed(2)}
                   </Title>
                   
                   <div style={{ marginTop: 24 }}>
